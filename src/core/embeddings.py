@@ -1,4 +1,4 @@
-from langchain.embeddings import OpenAIEmbeddings
+from langchain_openai import OpenAIEmbeddings
 from langchain.text_splitter import CharacterTextSplitter
 import json
 import os
@@ -40,14 +40,14 @@ class EmbeddingsManager:
             )
             texts.append(text)
         
-        # Process classes
+        # Process classes with student counts
         for class_info in data['data']['classes']:
-            text = (
-                f"Class Information: {class_info['name']} is located in the "
-                f"{class_info['location']}. The class has {class_info['special_feature']} "
-                f"and {class_info['additional_info']}. The head teacher is "
-                f"{class_info['head_teacher']}."
-            )
+            student_count = len([s for s in data['data']['students'] 
+                            if s['class'] == class_info['name']])
+            text = (f"Class Information: {class_info['name']} is located in the "
+                    f"{class_info['location']}. The class has {class_info['special_feature']} "
+                    f"and {class_info['additional_info']}. The head teacher is "
+                    f"{class_info['head_teacher']}. This class has {student_count} students.")
             texts.append(text)
         
         # Process students
@@ -57,6 +57,11 @@ class EmbeddingsManager:
                 f"belongs to Class {student['class']}, and lives at {student['address']}."
             )
             texts.append(text)
+        
+        # Debug: Print generated texts
+        print(f"\nTotal texts generated: {len(texts)}")
+        for idx, text in enumerate(texts[:5]):  # Print first 5 texts
+            print(f"Text {idx + 1}: {text}")
         
         return texts
     
@@ -70,7 +75,7 @@ class EmbeddingsManager:
     
     def process_and_save_embeddings(self, input_file: str, output_file: str = "data/embeddings.json"):
         """Process academic data and save embeddings"""
-        # Load and format texts
+       # Load and format texts
         texts = self.load_academic_data(input_file)
         
         # Create embeddings
