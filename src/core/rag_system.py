@@ -1,5 +1,6 @@
 # src/core/rag_system.py
 import dotenv
+import re
 from langchain_openai import ChatOpenAI
 from langchain.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
 from .vector_store import VectorStore
@@ -46,103 +47,108 @@ class RAGSystem:
             HumanMessagePromptTemplate.from_template(human_template)
         ])
 
+    def _detect_query_type(self, question: str):
+        """Detect the type of query."""
+        question = question.lower()
+        if any(word in question for word in ['teacher', 'teaches', 'instructor']):
+            return 'teacher'
+        elif any(word in question for word in ['class', 'classes', 'classroom']):
+            return 'class'
+        elif any(word in question for word in ['student', 'students', 'pupil']):
+            return 'student'
+        return None
+    
+    def _extract_class_from_query(self, question: str):
+        """Extract class reference from the query."""
+        # Look for Class 3A, 3B, 3C patterns
+        match = re.search(r'Class\s*(3[A-C])', question, re.IGNORECASE)
+        return match.group(1).upper() if match else None
+
+
     def query(self, question: str) -> str:
+        """Perform a comprehensive query across the vector store."""
         if not hasattr(self, 'retriever'):
             raise ValueError("RAG system not set up. Call setup() first.")
-    
+        
         try:
-            print("\nQuerying different content types...")
+            # Detect query type and potential class filter
+            query_type = self._detect_query_type(question)
+            class_filter = self._extract_class_from_query(question)
             
-            # Get teacher information
-            teacher_docs = self.vector_store.similarity_search(
-                question,
-                k=5,
-                filter_dict={"content_type": "teacher"}
-            )
+            # Prepare filters
+            filters = {}
+            if query_type:
+                filters['type'] = query_type
+            if class_filter:
+                filters['class'] = class_filter
             
-            # Get class information
-            class_docs = self.vector_store.similarity_search(
-                question,
-                k=5,
-                filter_dict={"content_type": "class"}
-            )
+            # Perform similarity search with dynamic filtering
+            print(f"\nQuerying with filters: {filters}")
             
-            # Get student information
-            student_docs = self.vector_store.similarity_search(
-                question,
-                k=10,
-                filter_dict={"content_type": "student"}
-            )
+            # Attempt type and class-specific search first
+            type_docs = []
+            if filters:
+                try:
+                    type_docs = self.vector_store.similarity_search(
+                        question, 
+                        filter_dict=filters, 
+                        k=30
+                    )
+                except Exception as filter_error:
+                    print(f"Filtered search error: {filter_error}")
             
-            # Remove duplicates while preserving order
-            def deduplicate_docs(docs):
-                seen = set()
-                unique_docs = []
-                for doc in docs:
-                    if doc.page_content not in seen:
-                        seen.add(doc.page_content)
-                        unique_docs.append(doc)
-                return unique_docs
+            # Fallback to unfiltered search if no results
+            if not type_docs:
+                print("No results with filters. Performing unfiltered search.")
+                type_docs = self.vector_store.similarity_search(question, k=30)
             
-            # Deduplicate each category
-            teacher_docs = deduplicate_docs(teacher_docs)
-            class_docs = deduplicate_docs(class_docs)
-            student_docs = deduplicate_docs(student_docs)
+            # Deduplicate documents
+            seen = set()
+            unique_docs = []
+            for doc in type_docs:
+                if doc.page_content not in seen:
+                    seen.add(doc.page_content)
+                    unique_docs.append(doc)
             
-            # Build structured context
-            context_parts = []
+            # Handle no results scenario
+            if not unique_docs:
+                return "No relevant information found."
             
-            if teacher_docs:
-                context_parts.append("TEACHER INFORMATION:")
-                context_parts.extend(doc.page_content for doc in teacher_docs)
+            # Create context from unique documents
+            context = "\n".join(doc.page_content for doc in unique_docs)
             
-            if class_docs:
-                context_parts.append("\nCLASS INFORMATION:")
-                context_parts.extend(doc.page_content for doc in class_docs)
-            
-            if student_docs:
-                context_parts.append("\nSTUDENT INFORMATION:")
-                context_parts.extend(doc.page_content for doc in student_docs)
-            
-            context = "\n".join(context_parts)
-            
-            # Debug print
-            print("\nRetrieved Information:")
-            print(f"Teachers: {len(teacher_docs)} unique documents")
-            print(f"Classes: {len(class_docs)} unique documents")
-            print(f"Students: {len(student_docs)} unique documents")
-            
-            # Get response
+            # Format messages and get response
             messages = self.prompt.format_messages(
                 context=context,
                 question=question
             )
+            
+            # Generate response
             response = self.llm.invoke(messages)
             return response.content
-                
+        
         except Exception as e:
             print(f"Error during query: {str(e)}")
             return f"An error occurred: {str(e)}"
 
+
 def main():
-    try:
-        rag = RAGSystem()
-        rag.setup("data/embeddings.json")
-        
-        questions = [
-            "List each teacher with their subject and characteristics.",
-            "For each class (3A, 3B, 3C), provide complete information about location, teacher, and students.",
-            "Tell me about all students in Class 3B.",
-            "Give me a complete breakdown of Class 3A including teacher, location, features, and all students."
-        ]
-        
-        for question in questions:
-            print(f"\nQ: {question}")
-            answer = rag.query(question)
-            print(f"A: {answer}")
-            
-    except Exception as e:
-        print(f"Error in main: {str(e)}")
+    # Example usage
+    rag_system = RAGSystem()
+    rag_system.setup("data/embeddings.json")
+    
+    # Test queries
+    test_queries = [
+        "Who teaches mathematics?",
+        "List all students in Class 3C",
+        "Tell me about Class 3A",
+    ]
+    
+    for query in test_queries:
+        print(f"\nQuery: {query}")
+        result = rag_system.query(query)
+        print(result)
+
 
 if __name__ == "__main__":
     main()
