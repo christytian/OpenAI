@@ -1,16 +1,19 @@
 {
   "metadata": {
-    "created_at": "2025-01-24T12:17:06.153563",
+    "created_at": "2025-02-11T21:29:10.420121",
     "version": "1.0",
-    "data_structure": "Academic Management System"
+    "data_structure": "Academic Management System",
+    "includes_email": true
   },
   "data": {
     "teachers": [
       {
         "name": "Sarah Chen",
         "age": 32,
+        "email": "sarah.chen@school.edu",
         "subject": "Mathematics",
         "class_responsibility": "3A",
+        "office_hours": "Monday and Wednesday 3-4pm",
         "characteristics": [
           "Known for using innovative technology in teaching",
           "Organizes annual mathematics competitions"
@@ -19,8 +22,10 @@
       {
         "name": "James Liu",
         "age": 45,
+        "email": "james.liu@school.edu",
         "subject": "Science",
         "class_responsibility": "3B",
+        "office_hours": "Tuesday and Thursday 3-4pm",
         "characteristics": [
           "Published several science textbooks",
           "Leads the school's science club"
@@ -29,8 +34,10 @@
       {
         "name": "Emily Wang",
         "age": 38,
+        "email": "emily.wang@school.edu",
         "subject": "Art",
         "class_responsibility": "3C",
+        "office_hours": "Friday 2-4pm",
         "characteristics": [
           "Professional painter",
           "Organizes annual art exhibitions"
@@ -43,6 +50,7 @@
         "location": "Third floor, East Wing",
         "special_feature": "Excellence in Mathematics and Technology",
         "head_teacher": "Ms. Chen",
+        "head_teacher_email": "sarah.chen@school.edu",
         "additional_info": "Known for winning regional math competitions"
       },
       {
@@ -50,6 +58,7 @@
         "location": "Third floor, Central Wing",
         "special_feature": "Focus on Science and Research",
         "head_teacher": "Mr. Liu",
+        "head_teacher_email": "james.liu@school.edu",
         "additional_info": "Has a dedicated science laboratory"
       },
       {
@@ -57,6 +66,7 @@
         "location": "Third floor, West Wing",
         "special_feature": "Strong Arts Program",
         "head_teacher": "Mrs. Wang",
+        "head_teacher_email": "emily.wang@school.edu",
         "additional_info": "Regular art exhibitions and performances"
       }
     ],
@@ -64,62 +74,82 @@
       {
         "name": "David Zhang",
         "age": 14,
+        "email": "david.zhang@school.edu",
         "class": "3A",
-        "address": "123 Maple Street, East District"
+        "address": "123 Maple Street, East District",
+        "parent_email": "parent.zhang@email.com"
       },
       {
         "name": "Linda Wu",
         "age": 15,
+        "email": "linda.wu@school.edu",
         "class": "3A",
-        "address": "456 Oak Road, North District"
+        "address": "456 Oak Road, North District",
+        "parent_email": "parent.wu@email.com"
       },
       {
         "name": "Michael Chen",
         "age": 14,
+        "email": "michael.chen@school.edu",
         "class": "3A",
-        "address": "789 Pine Avenue, Central District"
+        "address": "789 Pine Avenue, Central District",
+        "parent_email": "parent.chen@email.com"
       },
       {
         "name": "Sophie Liu",
         "age": 15,
+        "email": "sophie.liu@school.edu",
         "class": "3B",
-        "address": "321 Cedar Lane, West District"
+        "address": "321 Cedar Lane, West District",
+        "parent_email": "parent.liu@email.com"
       },
       {
         "name": "Thomas Yang",
         "age": 14,
+        "email": "thomas.yang@school.edu",
         "class": "3B",
-        "address": "654 Birch Street, South District"
+        "address": "654 Birch Street, South District",
+        "parent_email": "parent.yang@email.com"
       },
       {
         "name": "Emma Sun",
         "age": 15,
+        "email": "emma.sun@school.edu",
         "class": "3B",
-        "address": "987 Elm Road, East District"
+        "address": "987 Elm Road, East District",
+        "parent_email": "parent.sun@email.com"
       },
       {
         "name": "Kevin Wang",
         "age": 14,
+        "email": "kevin.wang@school.edu",
         "class": "3B",
-        "address": "147 Spruce Avenue, North District"
+        "address": "147 Spruce Avenue, North District",
+        "parent_email": "parent.wang@email.com"
       },
       {
         "name": "Rachel Li",
         "age": 15,
+        "email": "rachel.li@school.edu",
         "class": "3C",
-        "address": "258 Willow Lane, Central District"
+        "address": "258 Willow Lane, Central District",
+        "parent_email": "parent.li@email.com"
       },
       {
         "name": "Jason Huang",
         "age": 14,
+        "email": "jason.huang@school.edu",
         "class": "3C",
-        "address": "369 Palm Street, West District"
+        "address": "369 Palm Street, West District",
+        "parent_email": "parent.huang@email.com"
       },
       {
         "name": "Amy Zhou",
         "age": 15,
+        "email": "amy.zhou@school.edu",
         "class": "3C",
-        "address": "741 Cherry Road, South District"
+        "address": "741 Cherry Road, South District",
+        "parent_email": "parent.zhou@email.com"
       }
     ]
   }

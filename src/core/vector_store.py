@@ -1,11 +1,27 @@
 from langchain_community.vectorstores import Chroma
 from langchain_openai import OpenAIEmbeddings
+import chromadb
 import json
 import os
-from typing import List, Dict
+from typing import List, Dict, Tuple, Optional
 from dotenv import load_dotenv
+import numpy as np
 
 load_dotenv()
+
+class OpenAIEmbeddingFunction:
+    """Custom embedding function for ChromaDB"""
+    def __init__(self, api_key: str, model: str = "text-embedding-3-small"):
+        self.embeddings = OpenAIEmbeddings(
+            model=model,
+            openai_api_key=api_key
+        )
+
+    def __call__(self, input: List[str]) -> List[List[float]]:
+        """Generate embeddings for a list of texts"""
+        if isinstance(input, str):
+            input = [input]
+        return [self.embeddings.embed_query(text) for text in input]
 
 class VectorStore:
     def __init__(self, model: str = "text-embedding-3-small", persist_directory: str = "data/chroma_db"):
@@ -13,64 +29,93 @@ class VectorStore:
         if not openai_api_key:
             raise ValueError("OPENAI_API_KEY not set in environment variables.")
         
-        self.embeddings = OpenAIEmbeddings(
-            model=model,
-            openai_api_key=openai_api_key
+        self.embedding_function = OpenAIEmbeddingFunction(
+            api_key=openai_api_key,
+            model=model
         )
-        self.persist_directory = persist_directory # Where vector data is stored
-        self.chroma_store = None # ChromaDB instance
+        self.persist_directory = persist_directory
+        self.client = chromadb.PersistentClient(path=persist_directory)
+        self.collection = None
 
-        if not os.path.exists(self.persist_directory):
-            os.makedirs(self.persist_directory)
-
-    
     def create_vector_store(self, embeddings_file: str):
-        """Create a Chroma vector store from embedding data."""
+        """Create a collection with pre-computed embeddings."""
         if not os.path.exists(embeddings_file):
             raise FileNotFoundError(f"Embeddings file not found: {embeddings_file}")
         
         with open(embeddings_file, 'r') as f:
-            data = json.load(f)
-            if 'embeddings' not in data:
-                raise ValueError("Invalid embeddings file format")
-            embeddings_data = data['embeddings']
+            data = json.load(f)['embeddings']
 
-        texts, embeddings, metadatas = [], [], []
-        for item in embeddings_data:
-            texts.append(item['text'])
-            embeddings.append(item['embedding'])
-            metadatas.append({
-                'type': self._get_content_type(item['text']),
-                'class': self._extract_class_reference(item['text'])
-            })
+        # Create or get collection
+        if not self.collection:
+            self.collection = self.client.get_or_create_collection(
+                name="academic_data",
+                embedding_function=self.embedding_function
+            )
 
-        self.chroma_store = Chroma.from_texts(
-            texts=texts,
-            embedding=self.embeddings,
-            metadatas=metadatas,
-            persist_directory=self.persist_directory
-        )
+        # Get existing document IDs to prevent duplicate insertions
+        existing_ids = set(self.collection.get()['ids'])
 
-        self._print_store_summary(metadatas)
-        return self.chroma_store
+        # Prepare new data, avoiding duplicates
+        new_embeddings = []
+        new_documents = []
+        new_metadatas = []
+        new_ids = []
 
-    def _get_content_type(self, text: str) -> str:
-        """Get content type from text"""
-        if text.startswith("Teacher Information:"):
-            return "teacher"
-        elif text.startswith("Class Information:"):
-            return "class"
-        elif text.startswith("Student Information:"):
-            return "student"
-        return "unknown"
+        for idx, item in enumerate(data):
+            doc_id = f"doc_{idx}"
+            if doc_id not in existing_ids:  # Only add new documents
+                new_embeddings.append(item['embedding'])
+                new_documents.append(item['text'])
+                new_metadatas.append(item['metadata'])
+                new_ids.append(doc_id)
 
-    def _extract_class_reference(self, text: str) -> str:
-        """Extract class reference from text"""
-        for class_name in ["3A", "3B", "3C"]:
-            if f"Class {class_name}" in text:
-                return class_name
-        return "unknown"
+        # Add new data to collection
+        if new_embeddings:
+            self.collection.add(
+                embeddings=new_embeddings,
+                documents=new_documents,
+                metadatas=new_metadatas,
+                ids=new_ids
+            )
+            print(f"\nAdded {len(new_embeddings)} new documents to the vector store.")
+        else:
+            print("\nNo new documents were added. All embeddings already exist.")
 
+        self._print_store_summary(new_metadatas)
+        return self.collection
+
+    def similarity_search(self, query: str, filter_dict: Dict = None, k: int = 16):
+        """Search using vector similarity."""
+        if not self.collection:
+            raise ValueError("Collection not initialized.")
+
+        try:
+            # Generate query embedding
+            query_embedding = self.embedding_function([query])[0] # Get first embedding since we only have one query
+            
+
+            print(f"\nPerforming similarity search for query: {query}")
+            
+            # Query collection
+            results = self.collection.query(
+                query_embeddings=[query_embedding],
+                n_results=k,
+                include=['documents', 'metadatas']
+            )
+
+            # Format results
+            formatted_results = [
+                {"content": doc, "metadata": meta}
+                for doc, meta in zip(results['documents'][0], results['metadatas'][0])
+            ]
+            print(f"Search results found: {len(formatted_results)}")
+            return formatted_results
+
+        except Exception as e:
+            print(f"Search error: {str(e)}")
+            return []
+
+   
     def _print_store_summary(self, metadatas: List[Dict]):
         """Print summary of vector store contents."""
         types = [m['type'] for m in metadatas]
@@ -79,102 +124,117 @@ class VectorStore:
         print(f"- Classes: {types.count('class')}")
         print(f"- Students: {types.count('student')}")
 
-    def similarity_search(self, query: str, filter_dict: Dict = None, k: int = 20):
-        """Perform similarity search with metadata filtering.
-    
-        Args:
-            query (str): The search query
-            filter_dict (Dict, optional): Metadata filters
-            k (int, optional): Number of results to return. Defaults to 7.
+    def cosine_similarity(self, vector_a: List[float], vector_b: List[float]) -> float:
         """
-
-        if not self.chroma_store:
-            raise ValueError("Vector store not initialized.")
+        Calculate cosine similarity between two vectors.
         
-        # Enhanced query type detection
-        content_type = self._get_query_type(query)
-        class_name = self._get_class_from_query(query)
-        
-        try:
-            # Construct the filter using ChromaDB's specific format
-            if content_type and class_name:
-                # Use AND condition for multiple filters
-                filter_dict = {
-                    "$and": [
-                        {"type": {"$eq": content_type}},
-                        {"class": {"$eq": class_name}}
-                    ]
-                }
-            elif content_type:
-                filter_dict = {"type": {"$eq": content_type}}
-            elif class_name:
-                filter_dict = {"class": {"$eq": class_name}}
-            else:
-                filter_dict = None
-
-            # First, try a filtered search
-            if filter_dict:
-                try:
-                    results = self.chroma_store.similarity_search(
-                        query,
-                        filter=filter_dict,
-                        k=k
-                    )
-                    if results:
-                        return self._get_unique_results(results, k=k)
-                except Exception as e:
-                    print(f"Filtered search error: {str(e)}")
+        Args:
+            vector_a: First vector
+            vector_b: Second vector
             
-            # Fallback to unfiltered search if filtered search fails or returns no results
-            results = self.chroma_store.similarity_search(query, k=k)
-            return self._get_unique_results(results, k=k)
+        Returns:
+            float: Cosine similarity score between -1 and 1
+        """
+        # Convert to numpy arrays for efficient computation
+        a = np.array(vector_a)
+        b = np.array(vector_b)
+        
+        # Calculate dot product and magnitudes
+        dot_product = np.dot(a, b)
+        norm_a = np.linalg.norm(a)
+        norm_b = np.linalg.norm(b)
+        
+        # Avoid division by zero
+        if norm_a == 0 or norm_b == 0:
+            return 0.0
+            
+        return dot_product / (norm_a * norm_b)
+    
+    def cosine_similarity_search(
+        self, 
+        query: str, 
+        filter_dict: Optional[Dict] = None, 
+        k: int = 16,
+        score_threshold: Optional[float] = 0.3
+    ) -> List[Dict]:
+        """
+        Search using cosine similarity with optional filtering and score thresholding.
+        
+        Args:
+            query: Search query string
+            filter_dict: Optional dictionary of metadata filters
+            k: Number of results to return
+            score_threshold: Minimum similarity score threshold (0 to 1)
+            
+        Returns:
+            List of dictionaries containing content, metadata, and similarity scores
+        """
+        if not self.collection:
+            raise ValueError("Collection not initialized.")
+
+        try:
+            # Generate query embedding
+            query_embedding = self.embedding_function([query])[0]
+            
+            print(f"\nPerforming cosine similarity search for query: {query}")
+            
+            # Get all documents and their embeddings
+            collection_data = self.collection.get(
+                include=['embeddings', 'documents', 'metadatas']
+            )
+            
+            # Calculate similarities and create result objects
+            similarities = []
+            for idx, (doc_embedding, doc, metadata) in enumerate(zip(
+                collection_data['embeddings'],
+                collection_data['documents'],
+                collection_data['metadatas']
+            )):
+                # Apply metadata filtering if specified
+                if filter_dict and not all(
+                    metadata.get(k) == v for k, v in filter_dict.items()
+                ):
+                    continue
+                
+                # Calculate cosine similarity
+                similarity = self.cosine_similarity(query_embedding, doc_embedding)
+                
+                # Apply score threshold
+                if similarity >= score_threshold:
+                    similarities.append({
+                        'content': doc,
+                        'metadata': metadata,
+                        'similarity': similarity,
+                        'index': idx
+                    })
+            
+            # Sort by similarity score in descending order
+            similarities.sort(key=lambda x: x['similarity'], reverse=True)
+            
+            # Take top k results
+            results = similarities[:k]
+            
+            # Print detailed search statistics
+            print(f"\nSearch statistics:")
+            print(f"- Total documents processed: {len(similarities)}")
+            print(f"- Results above threshold {score_threshold}: {len(results)}")
+            if not results:
+                # If no results with current threshold, find the highest similarity score
+                if similarities:
+                    max_similarity = max(similarities, key=lambda x: x['similarity'])
+                    print(f"- Highest similarity score found: {max_similarity['similarity']:.3f}")
+                    print("- Consider lowering the score_threshold to see more results")
+                
+            return results
 
         except Exception as e:
-            print(f"Search error: {str(e)}")
-            # Fallback to unfiltered search
-            return self.chroma_store.similarity_search(query, k=k)
-
-
-    def _get_query_type(self, query: str) -> str:
-        """Determine the type of query."""
-        query = query.lower()
-        if "student" in query or "students" in query: return "student"
-        if "teacher" in query or "teachers" in query: return "teacher"
-        if "class" in query or "classes" in query: return "class"
-        return None
-
-    def _get_class_from_query(self, query: str) -> str:
-        """Extract class reference from query."""
-        query = query.upper()
-        for class_name in ["3A", "3B", "3C"]:
-            if class_name in query:
-                return class_name
-        return None
-
-    def _get_unique_results(self, results: List, k: int = 7) -> List:
-        """Remove duplicates while preserving order.
-        
-        Args:
-            results (List): List of search results
-            k (int): Maximum number of results to return
-        """
-        seen_content = set()
-        unique_results = []
-        for doc in results:
-            # Use page content as the primary uniqueness key
-            if doc.page_content not in seen_content:
-                seen_content.add(doc.page_content)
-                unique_results.append(doc)
-                
-                if len(unique_results) >= k:
-                    break
-
-        return unique_results
+            print(f"Cosine similarity search error: {str(e)}")
+            return []
 
 def main():
     """Test vector store functionality."""
     try:
-       # Initialize vector store
+        # Initialize vector store
         print("\nInitializing vector store...")
         vector_store = VectorStore()
 
@@ -183,35 +243,39 @@ def main():
         embeddings_file = "data/embeddings.json"
         vector_store.create_vector_store(embeddings_file)
 
-        # Test different types of queries
+        # Test queries
         test_queries = [
             "Who teaches mathematics?",
-            "List all students in Class 3C.",
+            "List all students in Class 3A",
+            "What are the features of Class 3B?",
+            "Tell me about the art teacher"
         ]
 
-        print("\nTesting search queries...")
+        print("\nTesting both search queries...")
         for query in test_queries:
-            print(f"\nQuery: {query}")
-            
-            # Search with default parameters
-            results = vector_store.similarity_search(query)
+            print("\nOriginal Similarity Search Results:")
+            results = vector_store.similarity_search(query, k=5)
             print(f"Found {len(results)} results:")
-            for i, doc in enumerate(results, 1):
-                print(f"\n{i}. {doc.page_content}")
+            for i, result in enumerate(results, 1):
+                print(f"\n{i}. Content: {result['content']}")
+                print(f"   Metadata: {result['metadata']}")
 
-            # Search with type filter
-            if "class" in query.lower():
-                filtered_results = vector_store.similarity_search(
-                    query, 
-                    filter_dict={"type": "class"},
-                    k=5
-                )
-                print(f"\nFiltered results (class only):")
-                for i, doc in enumerate(filtered_results, 1):
-                    print(f"\n{i}. {doc.page_content}")
+             # Test cosine similarity search
+            print("\nCosine Similarity Search Results:")
+            cosine_results = vector_store.cosine_similarity_search(
+                query=query,
+                k=5,
+                score_threshold=0.3
+            )
+            for i, result in enumerate(cosine_results, 1):
+                print(f"\n{i}. Content: {result['content']}")
+                print(f"   Metadata: {result['metadata']}")
+                print(f"   Similarity Score: {result['similarity']:.3f}")
+
 
     except Exception as e:
         print(f"\nError: {str(e)}")
 
 if __name__ == "__main__":
-   main()
+    main()
+
